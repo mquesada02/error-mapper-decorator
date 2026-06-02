@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write # create the GitHub Release
   id-token: write # OIDC for npm Trusted Publishing (auth + provenance)
 
 jobs:
@@ -41,3 +41,19 @@ jobs:
 
       - name: Publish to npm via Trusted Publishing
         run: npm publish --access public --ignore-scripts
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES="$(awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md)"
+          if [ -z "$(printf "%s" "$NOTES" | tr -d "[:space:]")" ]; then
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          else
+            printf "%s\n" "$NOTES" | gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file -
+          fi
