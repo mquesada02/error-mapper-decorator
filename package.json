@@ -74,11 +74,17 @@
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^25",
     "@vitest/coverage-v8": "^4",
+    "fast-check": "^3",
     "publint": "^0.3",
     "reflect-metadata": "^0.2",
     "tsup": "^8",
     "typedoc": "^0.28",
     "typescript": "^5",
     "vitest": "^4"
+  },
+  "pnpm": {
+    "overrides": {
+      "qs": "^6.15.2"
+    }
   }
 }
