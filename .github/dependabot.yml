@@ -19,3 +19,10 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        # Batch minor/patch action bumps into one PR; majors stay individual so
+        # risky upgrades to release/CI-critical actions are reviewed on their own.
+        update-types:
+          - minor
+          - patch
