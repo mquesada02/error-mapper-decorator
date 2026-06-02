@@ -5,12 +5,14 @@
 [![npm downloads](https://img.shields.io/npm/dm/error-mapper-decorator.svg)](https://www.npmjs.com/package/error-mapper-decorator)
 
 A tiny, type-safe decorator that translates errors thrown by a method — or by
-every method of a class — according to an ordered, **first-match-wins** rule
-list. Unmatched errors are rethrown as-is, so domain exceptions and genuine bugs
-pass through untouched.
+every method of a class — through an ordered list of rules. Unmatched errors are
+rethrown as-is, so domain exceptions and genuine bugs pass through untouched.
 
 - **Type-safe rules** — each rule's `when`/`to` receives the exact instance type
   of its `from` class, inferred from a variadic tuple. No per-rule casts.
+- **Composable** — by default the rules run as a pipeline, so an `A → B` mapping
+  followed by `B → C` turns a thrown `A` into a `C`. Opt out per annotation with
+  `{ pipeline: false }`.
 - **Sync *and* async** — the wrapper preserves the method's return type. Sync
   methods stay sync; async rejections are mapped on the promise.
 - **Both decorator standards** — works under legacy `experimentalDecorators`
@@ -64,13 +66,45 @@ propagates unchanged.
 
 ### Ordering matters
 
-Rules are evaluated top to bottom and the first match wins. **A subclass rule
-must come before its superclass rule**, otherwise the superclass rule shadows it:
+Rules are applied top to bottom. **Put a subclass rule before its superclass
+rule** — otherwise the superclass rule maps the error first, and its result
+(a different type) no longer matches the more specific rule below:
 
 ```ts
 @MapErrors(
-  { from: SpecificError, to: () => new HttpError(409) }, // checked first
-  { from: BaseError, to: () => new HttpError(500) },     // catch-all
+  { from: SpecificError, to: () => new HttpError(409) }, // applied first
+  { from: BaseError, to: () => new HttpError(500) },     // general fallback
+)
+```
+
+### Chaining (`pipeline`)
+
+By default the rules form a **pipeline**: each rule whose `from` matches the
+current error transforms it and passes the result to the next rule, so mappings
+compose (`A → B → C`):
+
+```ts
+@MapErrors(
+  { from: SqlError, to: (e) => new RepositoryError({ cause: e }) },
+  { from: RepositoryError, to: (e) => new ServiceError({ cause: e }) },
+)
+// a thrown SqlError becomes RepositoryError, then ServiceError — and because
+// each `to` forwards `cause`, the full chain is preserved (Service → Repo → Sql).
+```
+
+Each rule fires at most once per call, so there are no loops. Because a `to`
+normally produces an error in a *different* layer than the inputs (e.g. domain →
+HTTP), unrelated rules simply don't match and you get the same result as a single
+mapping — the chaining only kicks in when a mapped error is itself the `from` of
+a later rule.
+
+Pass `{ pipeline: false }` to stop at the first matching rule instead:
+
+```ts
+@MapErrors(
+  { pipeline: false },
+  { from: ParseError, to: (e) => new RequestError({ cause: e }) },
+  { from: RequestError, to: () => new HttpError(400) }, // NOT applied to the line above
 )
 ```
 
@@ -144,15 +178,22 @@ the options form to a single method is a type error.
 
 When a method is reached by more than one annotation — its own method-level
 `@MapErrors`, its class's, and any annotated ancestor's — every applicable rule
-list is **merged**, ordered by specificity, and the first match wins:
+list is **merged**, ordered by specificity:
 
 ```
 method-level  >  child class  >  parent class
 ```
 
-Nothing is dropped: subclassing only ever *adds* mappings. On a genuine conflict
-(two levels map the same error type) the more specific level wins because it is
-checked first.
+Nothing is dropped: subclassing only ever *adds* mappings, and the merged list
+is evaluated as one pipeline. On a conflict (two levels map the same error type)
+the more specific level wins because it is applied first. The most-specific
+annotation also decides the `pipeline` mode for the whole merged list.
+
+Because the merged list runs as a single forward pass, a chain that spans levels
+only composes when the **producing** rule is at least as specific as the
+**consuming** one — a method-level `A → B` feeds a class-level `B → C`, but not
+the reverse. (Chains within a single annotation are unaffected: you control the
+order.)
 
 The effective list is resolved from the **runtime receiver**, so a subclass's
 class-level rules also apply to methods it inherits:
@@ -208,8 +249,9 @@ runs under both.
 ### `MapErrors(options, ...rules): MapErrorsClassDecorator`
 
 A decorator factory. With no leading options it decorates a **method** or a
-**class** (wrapping every instance method); with a leading `options` object it
-decorates a **class only**. Each rule is a plain object:
+**class** (wrapping every instance method). A leading `options` object may carry
+`pipeline` (valid on either) and `include`/`exclude` (**class only** — a type
+error on a method). Each rule is a plain object:
 
 | Field  | Type                          | Required | Description                                              |
 | ------ | ----------------------------- | -------- | -------------------------------------------------------- |
@@ -217,12 +259,13 @@ decorates a **class only**. Each rule is a plain object:
 | `when` | `(error: E) => boolean`       | no       | Extra guard; rule only fires when this returns `true`.   |
 | `to`   | `(error: E) => Error`         | yes      | Maps the caught error to the error to re-throw. Pass the original as `cause` to keep its stack. |
 
-`options` (class form):
+`options`:
 
-| Field     | Type                | Description                                                       |
-| --------- | ------------------- | ---------------------------------------------------------------- |
-| `include` | `readonly string[]` | Apply this class's rules only to these methods (default: all).   |
-| `exclude` | `readonly string[]` | Methods this class's rules should skip.                          |
+| Field      | Type                | Description                                                                          |
+| ---------- | ------------------- | ------------------------------------------------------------------------------------ |
+| `pipeline` | `boolean`           | Thread each rule's output into the next (`A → B → C`). Default `true`; `false` stops at the first match. |
+| `include`  | `readonly string[]` | Class form only — apply this class's rules to these methods only (default: all).     |
+| `exclude`  | `readonly string[]` | Class form only — methods this class's rules should skip.                            |
 
 Also exported: the `ErrorRule`, `ErrorClass`, `MapErrorsOptions`,
 `MapErrorsDecorator`, and `MapErrorsClassDecorator` types.
