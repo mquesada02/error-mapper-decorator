@@ -1,5 +1,5 @@
 {
-  "name": "@mquesada/error-mapper-decorator",
+  "name": "@mquesada02/error-mapper-decorator",
   "version": "0.2.0",
   "exports": "./src/index.ts",
   "publish": {
