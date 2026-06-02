@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a problem with error-mapper-decorator
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Minimal code or steps. A failing test case is ideal.
+      render: ts
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: package version, TypeScript version, decorator mode (legacy / Stage-3), Node version.
+      placeholder: "error-mapper-decorator 0.1.0, TS 5.9, Stage-3, Node 22"
+    validations:
+      required: true

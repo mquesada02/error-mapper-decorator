@@ -27,6 +27,7 @@
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
     "test:runtime": "tsc -p test/integration/legacy/tsconfig.json && node test/integration/legacy/dist/index.js && tsc -p test/integration/stage3/tsconfig.json && node test/integration/stage3/dist/index.js",
     "lint": "biome check",
     "lint:fix": "biome check --write",
@@ -35,7 +36,7 @@
     "typecheck:legacy": "tsc -p tsconfig.legacy.json --noEmit",
     "publint": "publint",
     "attw": "attw --pack",
-    "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:legacy && pnpm test && pnpm build && pnpm test:runtime && pnpm publint && pnpm attw",
+    "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:legacy && pnpm coverage && pnpm build && pnpm test:runtime && pnpm publint && pnpm attw",
     "prepublishOnly": "pnpm verify"
   },
   "keywords": [
@@ -66,6 +67,7 @@
     "@arethetypeswrong/cli": "^0.18",
     "@biomejs/biome": "^2",
     "@types/node": "^22",
+    "@vitest/coverage-v8": "^3",
     "publint": "^0.3",
     "reflect-metadata": "^0.2",
     "tsup": "^8",
