@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # OIDC for npm Trusted Publishing + JSR (auth + provenance)
+      id-token: write # OIDC for npm Trusted Publishing (auth + provenance)
     outputs:
       hashes: ${{ steps.pack.outputs.hashes }}
     steps:
@@ -52,15 +52,26 @@ jobs:
       - name: Publish to npm via Trusted Publishing
         run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --ignore-scripts
 
-      # JSR authenticates through the same GitHub Actions OIDC token (id-token:
-      # write, above). The package must first be created/linked once on jsr.io.
-      - name: Publish to JSR via OIDC
-        run: npx jsr@0.14.3 publish
+  # JSR runs as its own job so a JSR-side failure can't fail the npm publish or
+  # skip provenance. Tokenless via GitHub Actions OIDC + the package's repo link
+  # on jsr.io; no registry-url here, so npm's NODE_AUTH_TOKEN can't leak into it.
+  jsr:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC for JSR publishing
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+      - run: npx jsr@0.14.3 publish
 
   # SLSA build provenance for the exact published tarball, attached to the GitHub
-  # Release as `*.intoto.jsonl`. The reusable workflow MUST be referenced by a
-  # version tag, not a commit SHA — the generator verifies its own ref, so a SHA
-  # pin would break it. Dependabot still tracks and bumps this tag.
+  # Release as `*.intoto.jsonl`. Independent of the jsr job — both only need the
+  # npm publish. The reusable workflow MUST be referenced by a version tag, not a
+  # commit SHA (the generator verifies its own ref), so Dependabot tracks the tag.
   provenance:
     needs: [publish]
     permissions:
