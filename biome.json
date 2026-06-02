@@ -12,7 +12,8 @@
       "examples/**/*.ts",
       "bench/**/*.ts",
       "*.ts",
-      "*.json"
+      "*.json",
+      "!jsr.json"
     ]
   },
   "formatter": {
