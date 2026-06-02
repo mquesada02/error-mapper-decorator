@@ -72,7 +72,7 @@ describe.each(modes)("MapErrors ($name decorator)", ({ apply }) => {
     expect(caught).toBe("string-error");
   });
 
-  it("honors first-match-wins ordering (subclass before superclass)", () => {
+  it("applies the more specific rule first (subclass before superclass)", () => {
     const fn = apply(
       MapErrors(
         { from: SpecificLowLevelError, to: () => new DomainError("specific") },
