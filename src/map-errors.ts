@@ -3,7 +3,7 @@ type AnyFunction = (this: unknown, ...args: unknown[]) => unknown;
 /** Constructor of a concrete `Error` subclass. */
 export type ErrorClass<E extends Error = Error> = new (...args: never[]) => E;
 
-/** A single translation rule. First matching rule wins. */
+/** A single translation rule, matched by `from` and the optional `when` guard. */
 export interface ErrorRule<E extends Error = Error> {
   readonly from: ErrorClass<E>;
   readonly when?: (error: E) => boolean;
@@ -51,18 +51,33 @@ export interface MapErrorsDecorator {
   ): void;
 }
 
-/** Filters for the whole-class form of {@link MapErrors}. */
+/** Options for the whole-class form of {@link MapErrors}. */
 export interface MapErrorsOptions {
   /** Apply this class's rules only to these methods. Defaults to all of them. */
   readonly include?: readonly string[];
   /** Methods this class's rules should skip; subtracted from the selected set. */
   readonly exclude?: readonly string[];
+  /**
+   * Evaluate the resolved rule list as a pipeline (the default): each rule fires
+   * at most once, in specificity order, threading its result into the next — so
+   * an `A → B` rule followed by a `B → C` rule maps a thrown `A` all the way to
+   * `C`. Set `false` to stop at the first matching rule instead.
+   */
+  readonly pipeline?: boolean;
+}
+
+/** The `pipeline` flag in isolation — the only option valid on a method. */
+interface PipelineOptions {
+  readonly pipeline?: boolean;
+  readonly include?: never;
+  readonly exclude?: never;
 }
 
 /**
  * The decorator returned by the whole-class form of {@link MapErrors} (when an
- * options object is supplied). Class-only by design: applying it to a method is
- * a type error, since `include`/`exclude` have no meaning there.
+ * options object with `include`/`exclude` is supplied). Class-only by design:
+ * applying it to a method is a type error, since those filters have no meaning
+ * there.
  */
 export interface MapErrorsClassDecorator {
   /** Legacy class (`experimentalDecorators: true`). */
@@ -76,8 +91,8 @@ export interface MapErrorsClassDecorator {
 
 const WRAPPED: unique symbol = Symbol("mapErrors.wrapped");
 const EMPTY_RULES: readonly ErrorRule[] = [];
-const OPTIONS_ON_METHOD =
-  "@MapErrors(options, ...rules) decorates a whole class; it cannot target a single method.";
+const CLASS_ONLY_OPTIONS =
+  "@MapErrors: include/exclude are only valid when decorating a class, not a method.";
 
 interface WrappedFn extends AnyFunction {
   [WRAPPED]?: true;
@@ -86,6 +101,12 @@ interface WrappedFn extends AnyFunction {
 interface ClassRegistration {
   readonly rules: readonly ErrorRule[];
   readonly applies: (methodName: PropertyKey) => boolean;
+  readonly pipeline: boolean;
+}
+
+interface ResolvedRules {
+  readonly rules: readonly ErrorRule[];
+  readonly pipeline: boolean;
 }
 
 /**
@@ -97,26 +118,30 @@ const classRegistry = new WeakMap<object, ClassRegistration[]>();
 
 /**
  * Method decorator that translates errors thrown by a method according to an
- * ordered rule list (first match wins). Unmatched errors are rethrown as-is, so
- * domain exceptions and genuine bugs pass through untouched. Order rules by
+ * ordered list of rules. Unmatched errors are rethrown as-is, so domain
+ * exceptions and genuine bugs pass through untouched. Order rules by
  * specificity: a subclass error rule must precede its superclass rule. Have each
  * rule's `to` pass the original error as `cause` to preserve its stack chain.
  *
  * Apply it to a single method, or to a whole class to wrap every instance
  * method. The class form takes an optional leading options object to narrow the
- * set with `include`/`exclude`:
+ * set with `include`/`exclude`. By default the rules run as a pipeline — each
+ * matching rule's output feeds the next (`A → B → C`); pass `pipeline: false` to
+ * stop at the first match.
  *
  * ```ts
- * @MapErrors(rule1, rule2)                        // every instance method
- * @MapErrors({ exclude: ["healthCheck"] }, rule1) // all but healthCheck
+ * @MapErrors(rule1, rule2)                         // every instance method
+ * @MapErrors({ exclude: ["healthCheck"] }, rule1)  // all but healthCheck
+ * @MapErrors({ pipeline: false }, ruleA, ruleB)    // stop at first match
  * class Service {}
  * ```
  *
- * When a method is reached by more than one annotation — its own `@MapErrors`,
- * its class's, and any annotated ancestor's — the rule lists are merged
- * most-specific-first (`method > child-class > parent-class`) and the first
- * match wins. The effective list is resolved from the runtime receiver, so a
- * subclass's class-level rules apply to methods it inherits.
+ * When a method is reached by more than one annotation — its own method-level
+ * `@MapErrors`, its class's, and any annotated ancestor's — the rule lists are
+ * merged most-specific-first (`method > child-class > parent-class`); the
+ * most-specific annotation also decides the `pipeline` mode. The effective list
+ * is resolved from the runtime receiver, so a subclass's class-level rules apply
+ * to methods it inherits.
  *
  * The wrapper preserves each method's return type — synchronous methods stay
  * synchronous, async methods stay async; rejections are mapped on the promise.
@@ -128,6 +153,10 @@ export function MapErrors<C extends readonly ErrorClass<Error>[]>(
   ...rules: ErrorRules<C>
 ): MapErrorsDecorator;
 export function MapErrors<C extends readonly ErrorClass<Error>[]>(
+  options: PipelineOptions,
+  ...rules: ErrorRules<C>
+): MapErrorsDecorator;
+export function MapErrors<C extends readonly ErrorClass<Error>[]>(
   options: MapErrorsOptions,
   ...rules: ErrorRules<C>
 ): MapErrorsClassDecorator;
@@ -135,13 +164,15 @@ export function MapErrors(...args: unknown[]): MapErrorsDecorator & MapErrorsCla
   const hasOptions = args.length > 0 && !isRule(args[0]);
   const options = (hasOptions ? args[0] : undefined) as MapErrorsOptions | undefined;
   const rules = (hasOptions ? args.slice(1) : args) as readonly ErrorRule[];
+  const pipeline = options?.pipeline ?? true;
 
   const wrapMethod = (
     original: AnyFunction,
     methodName: PropertyKey,
     methodRules: readonly ErrorRule[],
+    methodPipeline: boolean,
   ): WrappedFn => {
-    const cache = new WeakMap<object, readonly ErrorRule[]>();
+    const cache = new WeakMap<object, ResolvedRules>();
     const wrapper: WrappedFn = function (this: unknown, ...callArgs: unknown[]): unknown {
       // Resolve rules lazily — only when an error must actually be mapped — so the
       // success path carries no resolution cost.
@@ -149,12 +180,12 @@ export function MapErrors(...args: unknown[]): MapErrorsDecorator & MapErrorsCla
         const result = original.apply(this, callArgs);
         if (isPromiseLike(result)) {
           return result.then(undefined, (error: unknown) => {
-            throw translate(error, resolveRules(this, methodName, methodRules, cache));
+            throw map(error, resolveRules(this, methodName, methodRules, methodPipeline, cache));
           });
         }
         return result;
       } catch (error) {
-        throw translate(error, resolveRules(this, methodName, methodRules, cache));
+        throw map(error, resolveRules(this, methodName, methodRules, methodPipeline, cache));
       }
     };
     wrapper[WRAPPED] = true;
@@ -164,14 +195,14 @@ export function MapErrors(...args: unknown[]): MapErrorsDecorator & MapErrorsCla
   const decorateClass = (ctor: { readonly prototype: object }): void => {
     const proto = ctor.prototype;
     const applies = makeApplies(proto, options);
-    register(proto, { rules, applies });
+    register(proto, { rules, applies, pipeline });
     for (const name of ownMethodNames(proto)) {
       if (!applies(name)) continue;
       const descriptor = Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor;
       if ((descriptor.value as WrappedFn)[WRAPPED]) continue;
       Object.defineProperty(proto, name, {
         ...descriptor,
-        value: wrapMethod(descriptor.value as AnyFunction, name, EMPTY_RULES),
+        value: wrapMethod(descriptor.value as AnyFunction, name, EMPTY_RULES, false),
       });
     }
   };
@@ -181,66 +212,100 @@ export function MapErrors(...args: unknown[]): MapErrorsDecorator & MapErrorsCla
     if (isDecoratorContext(b)) {
       if (b.kind === "class") return decorateClass(a as { prototype: object });
       if (b.kind === "method") {
-        if (options) throw new TypeError(OPTIONS_ON_METHOD);
-        return wrapMethod(a as AnyFunction, b.name, rules);
+        if (hasClassOnlyOptions(options)) throw new TypeError(CLASS_ONLY_OPTIONS);
+        return wrapMethod(a as AnyFunction, b.name, rules, pipeline);
       }
       throw new TypeError(`@MapErrors can only decorate methods or classes, not a ${b.kind}.`);
     }
     // Legacy: a class decorator receives the constructor alone (no 2nd arg); a
     // method decorator always receives (target, propertyKey, descriptor).
     if (b === undefined) return decorateClass(a as { prototype: object });
-    if (options) throw new TypeError(OPTIONS_ON_METHOD);
+    if (hasClassOnlyOptions(options)) throw new TypeError(CLASS_ONLY_OPTIONS);
     if (!c || typeof c.value !== "function") {
       throw new TypeError("@MapErrors can only decorate methods.");
     }
-    c.value = wrapMethod(c.value as AnyFunction, b as PropertyKey, rules);
+    c.value = wrapMethod(c.value as AnyFunction, b as PropertyKey, rules, pipeline);
   }
 
   return decorate as MapErrorsDecorator & MapErrorsClassDecorator;
 }
 
-function translate(error: unknown, rules: readonly ErrorRule[]): unknown {
-  for (const rule of rules) {
-    if (error instanceof rule.from && (rule.when?.(error) ?? true)) {
-      return rule.to(error);
+function map(error: unknown, resolved: ResolvedRules): unknown {
+  const { rules, pipeline } = resolved;
+  if (pipeline) {
+    let current = error;
+    for (const rule of rules) {
+      if (matches(current, rule)) current = rule.to(current as Error);
     }
+    return current;
+  }
+  for (const rule of rules) {
+    if (matches(error, rule)) return rule.to(error as Error);
   }
   return error;
+}
+
+function matches(error: unknown, rule: ErrorRule): boolean {
+  return error instanceof rule.from && (rule.when?.(error) ?? true);
 }
 
 /**
  * Merge the rule sets that apply to `methodName` on `receiver`: the method's own
  * rules first, then every class registration up the receiver's prototype chain,
- * most-derived first. Memoized per receiver prototype — sound because every class
- * in the chain is registered at decoration time, before any instance method runs.
+ * most-derived first. The evaluation mode (`pipeline`) is taken from the
+ * most-specific annotation that contributes rules. Memoized per receiver
+ * prototype — sound because every class in the chain is registered at decoration
+ * time, before any instance method runs.
  */
 function resolveRules(
   receiver: unknown,
   methodName: PropertyKey,
   methodRules: readonly ErrorRule[],
-  cache: WeakMap<object, readonly ErrorRule[]>,
-): readonly ErrorRule[] {
-  if (typeof receiver !== "object" || receiver === null) return methodRules;
+  methodPipeline: boolean,
+  cache: WeakMap<object, ResolvedRules>,
+): ResolvedRules {
+  if (typeof receiver !== "object" || receiver === null) {
+    return { rules: methodRules, pipeline: methodPipeline };
+  }
   const start = Object.getPrototypeOf(receiver) as object | null;
-  if (start === null) return methodRules;
+  if (start === null) return { rules: methodRules, pipeline: methodPipeline };
   const cached = cache.get(start);
   if (cached !== undefined) return cached;
-  const effective: ErrorRule[] = [...methodRules];
+
+  const rules: ErrorRule[] = [];
+  let pipeline = false;
+  let modeSet = false;
+  if (methodRules.length > 0) {
+    rules.push(...methodRules);
+    pipeline = methodPipeline;
+    modeSet = true;
+  }
   for (let proto: object | null = start; proto !== null; proto = Object.getPrototypeOf(proto)) {
     const registrations = classRegistry.get(proto);
     if (registrations === undefined) continue;
     for (const registration of registrations) {
-      if (registration.applies(methodName)) effective.push(...registration.rules);
+      if (!registration.applies(methodName)) continue;
+      rules.push(...registration.rules);
+      if (!modeSet) {
+        pipeline = registration.pipeline;
+        modeSet = true;
+      }
     }
   }
-  cache.set(start, effective);
-  return effective;
+
+  const resolved: ResolvedRules = { rules, pipeline };
+  cache.set(start, resolved);
+  return resolved;
 }
 
 function register(proto: object, registration: ClassRegistration): void {
   const existing = classRegistry.get(proto);
   if (existing) existing.push(registration);
   else classRegistry.set(proto, [registration]);
+}
+
+function hasClassOnlyOptions(options: MapErrorsOptions | undefined): boolean {
+  return options !== undefined && (options.include !== undefined || options.exclude !== undefined);
 }
 
 function makeApplies(

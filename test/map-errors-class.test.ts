@@ -39,6 +39,15 @@ const tagOf = (run: () => void): string | undefined => {
   return undefined;
 };
 
+const caughtOf = (run: () => void): unknown => {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+};
+
 const classModes = [
   { name: "legacy", applyClass: applyLegacyClass },
   { name: "stage-3", applyClass: applyStage3Class },
@@ -306,6 +315,38 @@ describe("MapErrors resolution details", () => {
     expect(tagOf(() => repo.run(new TimeoutError()))).toBe("second");
   });
 
+  it("lets the most-specific annotation decide the pipeline mode", () => {
+    // Method opts out of pipeline; its mode governs the whole merged list, so the
+    // class rule that would chain TimeoutError -> AuthError never fires.
+    class OptOut {
+      run(error: Error): void {
+        throw error;
+      }
+    }
+    wrapMethodStage3(
+      MapErrors({ pipeline: false }, { from: DbError, to: () => new TimeoutError("b") }),
+      OptOut.prototype,
+      "run",
+    );
+    applyStage3Class(MapErrors({ from: TimeoutError, to: () => new AuthError("c") }), OptOut);
+    expect(caughtOf(() => new OptOut().run(new DbError("a")))).toBeInstanceOf(TimeoutError);
+
+    // Same shape, but the method keeps the default pipeline, so the class rule
+    // chains in: DbError -> TimeoutError -> AuthError.
+    class OptIn {
+      run(error: Error): void {
+        throw error;
+      }
+    }
+    wrapMethodStage3(
+      MapErrors({ from: DbError, to: () => new TimeoutError("b") }),
+      OptIn.prototype,
+      "run",
+    );
+    applyStage3Class(MapErrors({ from: TimeoutError, to: () => new AuthError("c") }), OptIn);
+    expect(caughtOf(() => new OptIn().run(new DbError("a")))).toBeInstanceOf(AuthError);
+  });
+
   it("memoizes resolution across calls", () => {
     class Repo {
       run() {
@@ -376,7 +417,9 @@ describe("MapErrors class misuse guards", () => {
       { exclude: [] },
       { from: DbError, to: () => new AppError("x") },
     );
-    expect(() => decorator(() => 0, { kind: "method", name: "m" })).toThrow(/whole class/);
+    expect(() => decorator(() => 0, { kind: "method", name: "m" })).toThrow(
+      /only valid when decorating a class/,
+    );
   });
 
   it("throws when the options form decorates a legacy method", () => {
@@ -385,6 +428,117 @@ describe("MapErrors class misuse guards", () => {
       { from: DbError, to: () => new AppError("x") },
     );
     const descriptor: PropertyDescriptor = { value: () => 0, writable: true, configurable: true };
-    expect(() => decorator({}, "m", descriptor)).toThrow(/whole class/);
+    expect(() => decorator({}, "m", descriptor)).toThrow(/only valid when decorating a class/);
+  });
+});
+
+describe("MapErrors pipeline mode", () => {
+  const m = { kind: "method", name: "m" };
+
+  it("chains rule outputs by default (A -> B -> C)", () => {
+    const decorator: Decorator = MapErrors(
+      { from: DbError, to: () => new TimeoutError("b") },
+      { from: TimeoutError, to: () => new AuthError("c") },
+    );
+    const fn = decorator(() => {
+      throw new DbError("a");
+    }, m);
+    expect(caughtOf(() => fn())).toBeInstanceOf(AuthError);
+  });
+
+  it("preserves the cause chain through a pipeline", () => {
+    class A extends Error {}
+    class B extends Error {}
+    class C extends Error {}
+    const decorator: Decorator = MapErrors(
+      { from: A, to: (e) => new B("b", { cause: e }) },
+      { from: B, to: (e) => new C("c", { cause: e }) },
+    );
+    const fn = decorator(() => {
+      throw new A("a");
+    }, m);
+    const caught = caughtOf(() => fn());
+    expect(caught).toBeInstanceOf(C);
+    expect((caught as Error).cause).toBeInstanceOf(B);
+    expect(((caught as Error).cause as Error).cause).toBeInstanceOf(A);
+  });
+
+  it("stops mid-pipeline when a later rule does not match the current error", () => {
+    const decorator: Decorator = MapErrors(
+      { from: DbError, to: () => new TimeoutError("b") },
+      { from: AuthError, to: () => new AppError("c") },
+    );
+    const fn = decorator(() => {
+      throw new DbError("a");
+    }, m);
+    expect(caughtOf(() => fn())).toBeInstanceOf(TimeoutError);
+  });
+
+  it("pipeline: false stops at the first match", () => {
+    const decorator: Decorator = MapErrors(
+      { pipeline: false },
+      { from: DbError, to: () => new TimeoutError("b") },
+      { from: TimeoutError, to: () => new AuthError("c") },
+    );
+    const fn = decorator(() => {
+      throw new DbError("a");
+    }, m);
+    expect(caughtOf(() => fn())).toBeInstanceOf(TimeoutError);
+  });
+
+  it("pipeline: false rethrows an unmatched error unchanged", () => {
+    const original = new AuthError("x");
+    const decorator: Decorator = MapErrors(
+      { pipeline: false },
+      { from: DbError, to: () => new TimeoutError("b") },
+    );
+    const fn = decorator(() => {
+      throw original;
+    }, m);
+    expect(caughtOf(() => fn())).toBe(original);
+  });
+
+  it("fires each rule at most once (no loop on a self-matching subtype)", () => {
+    class BaseErr extends Error {}
+    class SubErr extends BaseErr {}
+    const decorator: Decorator = MapErrors({ from: BaseErr, to: () => new SubErr("x") });
+    const fn = decorator(() => {
+      throw new BaseErr("x");
+    }, m);
+    const caught = caughtOf(() => fn());
+    expect(caught).toBeInstanceOf(SubErr);
+  });
+
+  it("applies pipeline to class methods by default", () => {
+    class Svc {
+      run() {
+        throw new DbError("a");
+      }
+    }
+    applyStage3Class(
+      MapErrors(
+        { from: DbError, to: () => new TimeoutError("b") },
+        { from: TimeoutError, to: () => new AuthError("c") },
+      ),
+      Svc,
+    );
+    expect(caughtOf(() => new Svc().run())).toBeInstanceOf(AuthError);
+  });
+
+  it("respects pipeline: false on a class", () => {
+    class Svc {
+      run() {
+        throw new DbError("a");
+      }
+    }
+    applyStage3Class(
+      MapErrors(
+        { pipeline: false },
+        { from: DbError, to: () => new TimeoutError("b") },
+        { from: TimeoutError, to: () => new AuthError("c") },
+      ),
+      Svc,
+    );
+    expect(caughtOf(() => new Svc().run())).toBeInstanceOf(TimeoutError);
   });
 });
