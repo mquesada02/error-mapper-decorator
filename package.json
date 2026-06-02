@@ -37,7 +37,9 @@
     "typecheck:legacy": "tsc -p tsconfig.legacy.json --noEmit",
     "publint": "publint",
     "attw": "attw --pack",
+    "docs": "typedoc",
     "mutation": "stryker run",
+    "bench": "vitest bench --run",
     "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:legacy && pnpm coverage && pnpm build && pnpm test:runtime && pnpm examples && pnpm publint && pnpm attw",
     "prepublishOnly": "pnpm verify"
   },
@@ -75,6 +77,7 @@
     "publint": "^0.3",
     "reflect-metadata": "^0.2",
     "tsup": "^8",
+    "typedoc": "^0.28",
     "typescript": "^5",
     "vitest": "^4"
   }

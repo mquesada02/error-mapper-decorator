@@ -1,0 +1,8 @@
+{
+  "name": "@mquesada02/error-mapper-decorator",
+  "version": "0.2.0",
+  "exports": "./src/index.ts",
+  "publish": {
+    "include": ["src", "README.md", "LICENSE", "jsr.json"]
+  }
+}

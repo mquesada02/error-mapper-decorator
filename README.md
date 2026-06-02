@@ -4,6 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/error-mapper-decorator.svg)](https://www.npmjs.com/package/error-mapper-decorator)
 [![npm downloads](https://img.shields.io/npm/dm/error-mapper-decorator.svg)](https://www.npmjs.com/package/error-mapper-decorator)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/mquesada02/error-mapper-decorator/badge)](https://scorecard.dev/viewer/?uri=github.com/mquesada02/error-mapper-decorator)
+[![docs](https://img.shields.io/badge/docs-typedoc-3f72af.svg)](https://mquesada02.github.io/error-mapper-decorator/)
 
 A tiny, type-safe decorator that translates errors thrown by a method — or by
 every method of a class — through an ordered list of rules. Unmatched errors are
@@ -172,8 +173,8 @@ class OrdersService {
 }
 ```
 
-The `constructor` and accessors (getters/setters) are never wrapped, and applying
-the options form to a single method is a type error.
+Applying the options form to a single method is a type error. See
+[Limitations](#limitations) for exactly what the class form does and doesn't wrap.
 
 ### How rules combine
 
@@ -214,23 +215,39 @@ class UserRepo extends BaseRepo {}
 // (from UserRepo) — even though find() is inherited, not overridden.
 ```
 
-> **Two consequences of prototype-based wrapping.** The class form wraps methods
-> on the prototype, so:
->
-> - Arrow-function class fields (`handler = async () => {}`) are per-instance and
->   are **not** wrapped — use a normal method, or a method-level `@MapErrors`.
-> - If an **un-annotated** subclass overrides a method, the override shadows the
->   base's wrapper and is no longer mapped. Annotate the subclass (even an empty
->   `@MapErrors()` re-wraps the override so inherited rules apply again).
+## Limitations
+
+The class form wraps **own instance methods on the prototype**. It deliberately
+leaves everything else alone — know what falls outside that net:
+
+- **Static methods** are not wrapped — they live on the constructor, not the
+  prototype. Use a method-level `@MapErrors`, or route through an instance method.
+- **Accessors (getters/setters)** are not wrapped — only data-property methods
+  (whose `descriptor.value` is a function) are; accessor descriptors are skipped.
+- **Arrow-function class fields** (`handler = async () => {}`) are assigned
+  per-instance in the constructor, so they aren't on the prototype at decoration
+  time and are **not** wrapped — use a normal method, or a method-level
+  `@MapErrors`.
+- **Overrides in an un-annotated subclass** shadow the base's wrapped method and
+  are no longer mapped. Annotate the subclass (even an empty `@MapErrors()`
+  re-wraps the override so inherited rules apply again).
+
+Matching is **`instanceof`-only**: a rule fires when the thrown value is an
+instance of its `from` class. Thrown non-`Error` values (strings, plain objects)
+and errors discriminated only by a field such as Node's `err.code` won't match —
+normalize them into error classes upstream, or wrap the call with a rule whose
+`from` they satisfy.
 
 ## Examples
 
-Runnable, type-checked examples live in [`examples/`](./examples) and are executed
-in CI under both decorator standards, so they never drift from the code:
+Runnable, type-checked examples live in
+[`examples/`](https://github.com/mquesada02/error-mapper-decorator/tree/main/examples)
+and are executed in CI under both decorator standards, so they never drift from
+the code:
 
-- [`basic-method.ts`](./examples/basic-method.ts) — method-level mapping, sync + async, `cause`.
-- [`whole-class.ts`](./examples/whole-class.ts) — class decoration, `exclude`, inheritance.
-- [`pipeline-chaining.ts`](./examples/pipeline-chaining.ts) — pipeline chaining and `{ pipeline: false }`.
+- [`basic-method.ts`](https://github.com/mquesada02/error-mapper-decorator/blob/main/examples/basic-method.ts) — method-level mapping, sync + async, `cause`.
+- [`whole-class.ts`](https://github.com/mquesada02/error-mapper-decorator/blob/main/examples/whole-class.ts) — class decoration, `exclude`, inheritance.
+- [`pipeline-chaining.ts`](https://github.com/mquesada02/error-mapper-decorator/blob/main/examples/pipeline-chaining.ts) — pipeline chaining and `{ pipeline: false }`.
 
 Run them with `pnpm examples`.
 
@@ -255,6 +272,9 @@ No code change is required to switch — the same `@MapErrors(...)` compiles and
 runs under both.
 
 ## API
+
+The full generated API reference (TypeDoc) is published at
+**<https://mquesada02.github.io/error-mapper-decorator/>**.
 
 ### `MapErrors(...rules): MapErrorsDecorator`
 
