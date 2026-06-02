@@ -40,3 +40,8 @@ jobs:
 
       - name: Publish to npm via Trusted Publishing
         run: npm publish --access public --ignore-scripts
+
+      # JSR authenticates through the same GitHub Actions OIDC token (id-token:
+      # write, above). The package must first be created/linked once on jsr.io.
+      - name: Publish to JSR via OIDC
+        run: npx jsr@latest publish
