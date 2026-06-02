@@ -63,6 +63,12 @@ class Misuse {
   method(): void {}
 }
 
+// The `pipeline` flag, unlike include/exclude, is valid on a method.
+class Pipelined {
+  @MapErrors({ pipeline: false }, { from: NotFoundError, to: () => new HttpError(404) })
+  run(): void {}
+}
+
 const service = new UserService();
 void service.getUser("1");
 void service.syncLookup("1");
@@ -70,3 +76,4 @@ void new Repository().load("1");
 void new HealthyService().act();
 void new AdminService().act();
 void new Misuse().method();
+void new Pipelined().run();

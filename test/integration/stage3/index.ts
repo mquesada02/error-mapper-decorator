@@ -32,10 +32,39 @@ const service = new Service();
 const result = service.double(3);
 assert.equal(result, 6);
 assert.ok(!((result as unknown) instanceof Promise), "sync return must stay sync");
-assert.throws(() => service.double(-1), /specific/, "subclass rule wins (first match)");
+assert.throws(() => service.double(-1), /specific/, "more specific rule applied first");
 
 await assert.rejects(service.load(-1), (error: unknown) => error instanceof DomainError);
 assert.equal(await service.load(4), 4);
+
+// Pipeline is the default: a matched rule's output feeds the next, so two hops
+// chain (SpecificLowError -> LowError -> DomainError). `pipeline: false` stops.
+class Chained {
+  @MapErrors(
+    { from: SpecificLowError, to: () => new LowError("hop1") },
+    { from: LowError, to: (error) => new DomainError("hop2", { cause: error }) },
+  )
+  run(): void {
+    throw new SpecificLowError("start");
+  }
+}
+assert.throws(() => new Chained().run(), /hop2/, "pipeline chains both hops by default");
+
+class NotChained {
+  @MapErrors(
+    { pipeline: false },
+    { from: SpecificLowError, to: () => new LowError("hop1") },
+    { from: LowError, to: () => new DomainError("hop2") },
+  )
+  run(): void {
+    throw new SpecificLowError("start");
+  }
+}
+assert.throws(
+  () => new NotChained().run(),
+  (error: unknown) => error instanceof LowError && !(error instanceof DomainError),
+  "pipeline: false stops at the first hop",
+);
 
 // Class-level decoration + inheritance: rules resolve from the runtime receiver,
 // so a subclass's rules reach methods it inherits (call-time resolution).
@@ -62,4 +91,4 @@ assert.throws(
   "base instances are unaffected by the subclass rule",
 );
 
-console.log("integration/stage3: OK (methods, class decoration, inheritance)");
+console.log("integration/stage3: OK (methods, pipeline, class decoration, inheritance)");
