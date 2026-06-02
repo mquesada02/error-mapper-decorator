@@ -69,6 +69,21 @@ describe.each(classModes)("MapErrors class form ($name)", ({ applyClass }) => {
     expect(repo.ok()).toBe(1);
   });
 
+  it("preserves the wrapped method's name and arity", () => {
+    class Repo {
+      findUser(_id: string, _opts: object) {
+        throw new DbError("x");
+      }
+    }
+    applyClass(MapErrors({ from: DbError, to: () => new AppError("db") }), Repo);
+    const wrapped = Object.getOwnPropertyDescriptor(Repo.prototype, "findUser")?.value;
+    expect(wrapped.name).toBe("findUser");
+    expect(wrapped.length).toBe(2);
+    // name/length stay configurable, matching native function semantics
+    expect(Object.getOwnPropertyDescriptor(wrapped, "name")?.configurable).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(wrapped, "length")?.configurable).toBe(true);
+  });
+
   it("maps async rejections", async () => {
     class Repo {
       async load() {

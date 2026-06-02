@@ -143,8 +143,9 @@ const classRegistry = new WeakMap<object, ClassRegistration[]>();
  * is resolved from the runtime receiver, so a subclass's class-level rules apply
  * to methods it inherits.
  *
- * The wrapper preserves each method's return type — synchronous methods stay
- * synchronous, async methods stay async; rejections are mapped on the promise.
+ * The wrapper preserves each method's return type, `name`, and arity (`length`)
+ * — synchronous methods stay synchronous, async methods stay async; rejections
+ * are mapped on the promise.
  *
  * Works under both legacy `experimentalDecorators` and TC39 Stage-3 decorators;
  * the returned function detects the standard and the target at runtime.
@@ -189,6 +190,10 @@ export function MapErrors(...args: unknown[]): MapErrorsDecorator & MapErrorsCla
       }
     };
     wrapper[WRAPPED] = true;
+    // Carry the original's identity so stack traces, `fn.name`, and arity
+    // (`fn.length`) survive wrapping — both are configurable, writable:false.
+    Object.defineProperty(wrapper, "name", { value: original.name, configurable: true });
+    Object.defineProperty(wrapper, "length", { value: original.length, configurable: true });
     return wrapper;
   };
 
