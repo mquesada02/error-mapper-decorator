@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/mquesada02/error-mapper-decorator/compare/error-mapper-decorator-v0.1.0...error-mapper-decorator-v0.2.0) (2026-06-02)
+
+
+### Features
+
+* add MapErrors error-mapping decorator ([75d3a7e](https://github.com/mquesada02/error-mapper-decorator/commit/75d3a7e721fb69901ff152085dc4daf3084e2830))
+
 ## [Unreleased]
 
 ## [0.1.0] - 2026-06-02
