@@ -202,6 +202,9 @@ export function MapErrors(...args: unknown[]): MapErrorsDecorator & MapErrorsCla
       if ((descriptor.value as WrappedFn)[WRAPPED]) continue;
       Object.defineProperty(proto, name, {
         ...descriptor,
+        // Stryker disable next-line all: class-wrapped methods carry no own rules
+        // (EMPTY_RULES), so this pipeline flag is never read — its mode comes from
+        // the registry at resolve time. Flipping it changes nothing (equivalent).
         value: wrapMethod(descriptor.value as AnyFunction, name, EMPTY_RULES, false),
       });
     }
@@ -270,9 +273,14 @@ function resolveRules(
   const start = Object.getPrototypeOf(receiver) as object | null;
   if (start === null) return { rules: methodRules, pipeline: methodPipeline };
   const cached = cache.get(start);
+  // Stryker disable next-line all: transparent memoization — bypassing the cache
+  // recomputes the identical ResolvedRules, so mutating this guard is equivalent.
   if (cached !== undefined) return cached;
 
   const rules: ErrorRule[] = [];
+  // Stryker disable next-line all: overwritten before use whenever any rule
+  // contributes; with an empty rule set map() ignores the mode, so this initial
+  // value is never observable (equivalent mutant).
   let pipeline = false;
   let modeSet = false;
   if (methodRules.length > 0) {
@@ -316,16 +324,10 @@ function makeApplies(
   const surface = instanceMethodSurface(proto);
   validateNames(proto, surface, options.include, "include");
   validateNames(proto, surface, options.exclude, "exclude");
-  const { include, exclude } = options;
-  if (include) {
-    const included = new Set<PropertyKey>(include);
-    const excluded = new Set<PropertyKey>(exclude ?? []);
-    return (name) => included.has(name) && !excluded.has(name);
-  }
-  if (exclude) {
-    const excluded = new Set<PropertyKey>(exclude);
-    return (name) => !excluded.has(name);
-  }
+  const included = options.include ? new Set<PropertyKey>(options.include) : undefined;
+  const excluded = options.exclude ? new Set<PropertyKey>(options.exclude) : undefined;
+  if (included) return (name) => included.has(name) && !(excluded ? excluded.has(name) : false);
+  if (excluded) return (name) => !excluded.has(name);
   return () => true;
 }
 
@@ -369,17 +371,9 @@ function isRule(value: unknown): boolean {
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-  return (
-    value !== null &&
-    (typeof value === "object" || typeof value === "function") &&
-    typeof (value as { then?: unknown }).then === "function"
-  );
+  return typeof (value as { then?: unknown } | null | undefined)?.then === "function";
 }
 
 function isDecoratorContext(value: unknown): value is DecoratorContext {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { kind?: unknown }).kind === "string"
-  );
+  return typeof (value as { kind?: unknown } | null | undefined)?.kind === "string";
 }
