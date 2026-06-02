@@ -1,7 +1,7 @@
 {
   "name": "error-mapper-decorator",
   "version": "0.1.0",
-  "description": "Type-safe method decorator that translates thrown errors via an ordered, first-match-wins rule list. Works with both legacy (experimentalDecorators) and TC39 Stage-3 decorators.",
+  "description": "Tiny, type-safe error-mapping decorator",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
