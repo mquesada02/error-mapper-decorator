@@ -3,6 +3,7 @@
 [![CI](https://github.com/mquesada02/error-mapper-decorator/actions/workflows/ci.yml/badge.svg)](https://github.com/mquesada02/error-mapper-decorator/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/error-mapper-decorator.svg)](https://www.npmjs.com/package/error-mapper-decorator)
 [![npm downloads](https://img.shields.io/npm/dm/error-mapper-decorator.svg)](https://www.npmjs.com/package/error-mapper-decorator)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/mquesada02/error-mapper-decorator/badge)](https://scorecard.dev/viewer/?uri=github.com/mquesada02/error-mapper-decorator)
 
 A tiny, type-safe decorator that translates errors thrown by a method — or by
 every method of a class — through an ordered list of rules. Unmatched errors are
@@ -221,6 +222,17 @@ class UserRepo extends BaseRepo {}
 > - If an **un-annotated** subclass overrides a method, the override shadows the
 >   base's wrapper and is no longer mapped. Annotate the subclass (even an empty
 >   `@MapErrors()` re-wraps the override so inherited rules apply again).
+
+## Examples
+
+Runnable, type-checked examples live in [`examples/`](./examples) and are executed
+in CI under both decorator standards, so they never drift from the code:
+
+- [`basic-method.ts`](./examples/basic-method.ts) — method-level mapping, sync + async, `cause`.
+- [`whole-class.ts`](./examples/whole-class.ts) — class decoration, `exclude`, inheritance.
+- [`pipeline-chaining.ts`](./examples/pipeline-chaining.ts) — pipeline chaining and `{ pipeline: false }`.
+
+Run them with `pnpm examples`.
 
 ## Decorator standards
 

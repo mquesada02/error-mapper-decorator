@@ -201,7 +201,7 @@ describe.each(classModes)("MapErrors class form ($name)", ({ applyClass }) => {
         MapErrors({ include: ["nope"] }, { from: DbError, to: () => new AppError("db") }),
         Repo,
       ),
-    ).toThrow(/not an instance method/);
+    ).toThrow(/include lists "nope", which is not an instance method/);
   });
 
   it("throws when exclude names an unknown method", () => {
@@ -213,7 +213,48 @@ describe.each(classModes)("MapErrors class form ($name)", ({ applyClass }) => {
         MapErrors({ exclude: ["nope"] }, { from: DbError, to: () => new AppError("db") }),
         Repo,
       ),
-    ).toThrow(/not an instance method/);
+    ).toThrow(/exclude lists "nope", which is not an instance method/);
+  });
+
+  it("leaves excluded methods as the original unwrapped function", () => {
+    class Repo {
+      a() {
+        throw new DbError("a");
+      }
+      b() {
+        return 1;
+      }
+    }
+    const originalA = Repo.prototype.a;
+    const originalB = Repo.prototype.b;
+    applyClass(
+      MapErrors({ exclude: ["b"] }, { from: DbError, to: () => new AppError("db") }),
+      Repo,
+    );
+    expect(Repo.prototype.a).not.toBe(originalA); // wrapped
+    expect(Repo.prototype.b).toBe(originalB); // skipped, untouched
+  });
+
+  it("never wraps the constructor", () => {
+    class Repo {
+      run() {
+        throw new DbError("x");
+      }
+    }
+    applyClass(MapErrors({ from: DbError, to: () => new AppError("db") }), Repo);
+    expect(Repo.prototype.constructor).toBe(Repo);
+  });
+
+  it("rejects an inherited Object.prototype name in include", () => {
+    class Repo {
+      a() {}
+    }
+    expect(() =>
+      applyClass(
+        MapErrors({ include: ["toString"] }, { from: DbError, to: () => new AppError("db") }),
+        Repo,
+      ),
+    ).toThrow(/toString.*is not an instance method/);
   });
 
   it("merges a subclass's rules into methods it inherits (call-time)", () => {
@@ -347,6 +388,23 @@ describe("MapErrors resolution details", () => {
     expect(caughtOf(() => new OptIn().run(new DbError("a")))).toBeInstanceOf(AuthError);
   });
 
+  it("takes the pipeline mode from the first (most-specific) annotation", () => {
+    class Svc {
+      run(error: Error): void {
+        throw error;
+      }
+    }
+    // First annotation opts out of the pipeline; the second keeps the default. The
+    // first (most-specific) governs, so the merged list stops at the first match
+    // (DbError -> TimeoutError) instead of chaining on to AuthError.
+    applyStage3Class(
+      MapErrors({ pipeline: false }, { from: DbError, to: () => new TimeoutError("b") }),
+      Svc,
+    );
+    applyStage3Class(MapErrors({ from: TimeoutError, to: () => new AuthError("c") }), Svc);
+    expect(caughtOf(() => new Svc().run(new DbError("a")))).toBeInstanceOf(TimeoutError);
+  });
+
   it("memoizes resolution across calls", () => {
     class Repo {
       run() {
@@ -429,6 +487,16 @@ describe("MapErrors class misuse guards", () => {
     );
     const descriptor: PropertyDescriptor = { value: () => 0, writable: true, configurable: true };
     expect(() => decorator({}, "m", descriptor)).toThrow(/only valid when decorating a class/);
+  });
+
+  it("throws when the include form decorates a method", () => {
+    const decorator: Decorator = MapErrors(
+      { include: [] },
+      { from: DbError, to: () => new AppError("x") },
+    );
+    expect(() => decorator(() => 0, { kind: "method", name: "m" })).toThrow(
+      /only valid when decorating a class/,
+    );
   });
 });
 

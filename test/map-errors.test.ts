@@ -155,6 +155,23 @@ describe.each(modes)("MapErrors ($name decorator)", ({ apply }) => {
     await expect(fn()).resolves.toBe(42);
   });
 
+  it("returns a nullish value without treating it as a promise", () => {
+    const fn = apply(
+      MapErrors({ from: LowLevelError, to: () => new DomainError("x") }),
+      () => null,
+    );
+    expect(fn()).toBeNull();
+  });
+
+  it("returns a non-thenable object unchanged", () => {
+    const value = { id: 1 };
+    const fn = apply(
+      MapErrors({ from: LowLevelError, to: () => new DomainError("x") }),
+      () => value,
+    );
+    expect(fn()).toBe(value);
+  });
+
   it("preserves `this` binding", () => {
     const fn = apply(
       MapErrors({ from: LowLevelError, to: () => new DomainError("x") }),
