@@ -4,13 +4,16 @@ on:
   release:
     types: [published]
 
-permissions:
-  contents: read
-  id-token: write # OIDC for npm Trusted Publishing (auth + provenance)
+permissions: {}
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC for npm Trusted Publishing + JSR (auth + provenance)
+    outputs:
+      hashes: ${{ steps.pack.outputs.hashes }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -35,13 +38,36 @@ jobs:
 
       - run: pnpm run verify
 
-      # Trusted Publishing (OIDC) requires a recent npm
-      - run: npm install -g npm@latest
+      # Trusted Publishing (OIDC) requires a recent npm; pinned for a reproducible
+      # publish (Dependabot bumps it like any other dependency).
+      - run: npm install -g npm@11.16.0
+
+      - name: Pack one tarball for both publish and provenance
+        id: pack
+        run: |
+          TARBALL="$(npm pack --silent | tail -n1)"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "hashes=$(sha256sum "$TARBALL" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
       - name: Publish to npm via Trusted Publishing
-        run: npm publish --access public --ignore-scripts
+        run: npm publish "${{ steps.pack.outputs.tarball }}" --access public --ignore-scripts
 
       # JSR authenticates through the same GitHub Actions OIDC token (id-token:
       # write, above). The package must first be created/linked once on jsr.io.
       - name: Publish to JSR via OIDC
-        run: npx jsr@latest publish
+        run: npx jsr@0.14.3 publish
+
+  # SLSA build provenance for the exact published tarball, attached to the GitHub
+  # Release as `*.intoto.jsonl`. The reusable workflow MUST be referenced by a
+  # version tag, not a commit SHA — the generator verifies its own ref, so a SHA
+  # pin would break it. Dependabot still tracks and bumps this tag.
+  provenance:
+    needs: [publish]
+    permissions:
+      actions: read # read the workflow run to build provenance
+      id-token: write # Sigstore keyless signing
+      contents: write # attach the provenance asset to the release
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.publish.outputs.hashes }}
+      upload-assets: true
