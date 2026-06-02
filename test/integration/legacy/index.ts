@@ -38,4 +38,22 @@ assert.deepEqual(paramTypes, [Number], "design:paramtypes preserved after wrappi
 const returnType = Reflect.getMetadata("design:returntype", Service.prototype, "handle");
 assert.equal(returnType, String, "design:returntype preserved after wrapping");
 
-console.log("integration/legacy: OK (behavior + reflect-metadata interop)");
+// Class-level decoration, inherited by an undecorated subclass.
+@MapErrors({ from: LowError, to: (error) => new DomainError("class", { cause: error }) })
+class BaseService {
+  base(): string {
+    throw new LowError("base");
+  }
+}
+
+class DerivedService extends BaseService {}
+
+let inheritedError: unknown;
+try {
+  new DerivedService().base();
+} catch (error) {
+  inheritedError = error;
+}
+assert.ok(inheritedError instanceof DomainError, "inherited method wrapped by the base class rule");
+
+console.log("integration/legacy: OK (behavior, reflect-metadata, class decoration)");

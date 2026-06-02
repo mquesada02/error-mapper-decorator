@@ -37,4 +37,29 @@ assert.throws(() => service.double(-1), /specific/, "subclass rule wins (first m
 await assert.rejects(service.load(-1), (error: unknown) => error instanceof DomainError);
 assert.equal(await service.load(4), 4);
 
-console.log("integration/stage3: OK (sync preserved, ordering, async mapping)");
+// Class-level decoration + inheritance: rules resolve from the runtime receiver,
+// so a subclass's rules reach methods it inherits (call-time resolution).
+@MapErrors({ from: LowError, to: (error) => new DomainError("class", { cause: error }) })
+class BaseService {
+  base(): string {
+    throw new LowError("base");
+  }
+}
+
+@MapErrors({ from: SpecificLowError, to: () => new DomainError("child") })
+class DerivedService extends BaseService {
+  derived(): string {
+    throw new SpecificLowError("derived");
+  }
+}
+
+const derived = new DerivedService();
+assert.throws(() => derived.base(), /class/, "inherited method mapped by the base class rule");
+assert.throws(() => derived.derived(), /child/, "subclass method mapped by its own rule");
+assert.throws(
+  () => new BaseService().base(),
+  (error: unknown) => error instanceof DomainError,
+  "base instances are unaffected by the subclass rule",
+);
+
+console.log("integration/stage3: OK (methods, class decoration, inheritance)");
