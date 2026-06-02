@@ -4,9 +4,10 @@
 [![npm version](https://img.shields.io/npm/v/error-mapper-decorator.svg)](https://www.npmjs.com/package/error-mapper-decorator)
 [![npm downloads](https://img.shields.io/npm/dm/error-mapper-decorator.svg)](https://www.npmjs.com/package/error-mapper-decorator)
 
-A tiny, type-safe method decorator that translates errors thrown by a method
-according to an ordered, **first-match-wins** rule list. Unmatched errors are
-rethrown as-is, so domain exceptions and genuine bugs pass through untouched.
+A tiny, type-safe decorator that translates errors thrown by a method — or by
+every method of a class — according to an ordered, **first-match-wins** rule
+list. Unmatched errors are rethrown as-is, so domain exceptions and genuine bugs
+pass through untouched.
 
 - **Type-safe rules** — each rule's `when`/`to` receives the exact instance type
   of its `from` class, inferred from a variadic tuple. No per-rule casts.
@@ -101,6 +102,85 @@ class RepositoryError extends Error {
 The original error is then available as `mappedError.cause` for logging and
 debugging.
 
+## Whole-class usage
+
+Apply `@MapErrors` to a **class** to wrap every instance method with the same
+rules, instead of annotating each one:
+
+```ts
+@MapErrors(
+  { from: ValidationError, to: (e) => new HttpError(422, { cause: e }) },
+  { from: NotFoundError, to: (e) => new HttpError(404, { cause: e }) },
+)
+class UserService {
+  async getUser(id: string): Promise<User> {
+    /* ... */
+  }
+  async createUser(input: NewUser): Promise<User> {
+    /* ... */
+  }
+}
+```
+
+Pass an options object first to narrow the set. `include`/`exclude` are validated
+at decoration time — an unknown method name throws:
+
+```ts
+@MapErrors({ exclude: ["healthCheck"] }, { from: DbError, to: (e) => new ServiceError({ cause: e }) })
+class OrdersService {
+  placeOrder() {
+    /* wrapped */
+  }
+  healthCheck() {
+    /* left alone */
+  }
+}
+```
+
+The `constructor` and accessors (getters/setters) are never wrapped, and applying
+the options form to a single method is a type error.
+
+### How rules combine
+
+When a method is reached by more than one annotation — its own method-level
+`@MapErrors`, its class's, and any annotated ancestor's — every applicable rule
+list is **merged**, ordered by specificity, and the first match wins:
+
+```
+method-level  >  child class  >  parent class
+```
+
+Nothing is dropped: subclassing only ever *adds* mappings. On a genuine conflict
+(two levels map the same error type) the more specific level wins because it is
+checked first.
+
+The effective list is resolved from the **runtime receiver**, so a subclass's
+class-level rules also apply to methods it inherits:
+
+```ts
+@MapErrors({ from: DbError, to: (e) => new RepoError({ cause: e }) })
+class BaseRepo {
+  find() {
+    /* throws DbError */
+  }
+}
+
+@MapErrors({ from: TimeoutError, to: (e) => new RepoError({ cause: e }) })
+class UserRepo extends BaseRepo {}
+
+// new UserRepo().find() maps BOTH DbError (from BaseRepo) and TimeoutError
+// (from UserRepo) — even though find() is inherited, not overridden.
+```
+
+> **Two consequences of prototype-based wrapping.** The class form wraps methods
+> on the prototype, so:
+>
+> - Arrow-function class fields (`handler = async () => {}`) are per-instance and
+>   are **not** wrapped — use a normal method, or a method-level `@MapErrors`.
+> - If an **un-annotated** subclass overrides a method, the override shadows the
+>   base's wrapper and is no longer mapped. Annotate the subclass (even an empty
+>   `@MapErrors()` re-wraps the override so inherited rules apply again).
+
 ## Decorator standards
 
 The decorator works with either TypeScript decorator implementation — pick the
@@ -125,7 +205,11 @@ runs under both.
 
 ### `MapErrors(...rules): MapErrorsDecorator`
 
-A method decorator factory. Each rule is a plain object:
+### `MapErrors(options, ...rules): MapErrorsClassDecorator`
+
+A decorator factory. With no leading options it decorates a **method** or a
+**class** (wrapping every instance method); with a leading `options` object it
+decorates a **class only**. Each rule is a plain object:
 
 | Field  | Type                          | Required | Description                                              |
 | ------ | ----------------------------- | -------- | -------------------------------------------------------- |
@@ -133,7 +217,15 @@ A method decorator factory. Each rule is a plain object:
 | `when` | `(error: E) => boolean`       | no       | Extra guard; rule only fires when this returns `true`.   |
 | `to`   | `(error: E) => Error`         | yes      | Maps the caught error to the error to re-throw. Pass the original as `cause` to keep its stack. |
 
-Also exported: the `ErrorRule`, `ErrorClass`, and `MapErrorsDecorator` types.
+`options` (class form):
+
+| Field     | Type                | Description                                                       |
+| --------- | ------------------- | ---------------------------------------------------------------- |
+| `include` | `readonly string[]` | Apply this class's rules only to these methods (default: all).   |
+| `exclude` | `readonly string[]` | Methods this class's rules should skip.                          |
+
+Also exported: the `ErrorRule`, `ErrorClass`, `MapErrorsOptions`,
+`MapErrorsDecorator`, and `MapErrorsClassDecorator` types.
 
 > **`to` is synchronous by design.** It must produce the replacement error
 > immediately so a synchronous method can stay synchronous. For async
