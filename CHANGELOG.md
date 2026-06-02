@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1](https://github.com/mquesada02/error-mapper-decorator/compare/v0.1.0...v0.1.1) (2026-06-02)
+
+
+### Miscellaneous Chores
+
+* release 0.1.1 ([#11](https://github.com/mquesada02/error-mapper-decorator/issues/11)) ([c8a4647](https://github.com/mquesada02/error-mapper-decorator/commit/c8a4647ef3e17c890cee81c1630e33e72c3f0f92))
+
 ## [Unreleased]
 
 ## [0.1.0] - 2026-06-02
