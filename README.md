@@ -1,6 +1,8 @@
 # error-mapper-decorator
 
 [![CI](https://github.com/mquesada02/error-mapper-decorator/actions/workflows/ci.yml/badge.svg)](https://github.com/mquesada02/error-mapper-decorator/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/error-mapper-decorator.svg)](https://www.npmjs.com/package/error-mapper-decorator)
+[![npm downloads](https://img.shields.io/npm/dm/error-mapper-decorator.svg)](https://www.npmjs.com/package/error-mapper-decorator)
 
 A tiny, type-safe method decorator that translates errors thrown by a method
 according to an ordered, **first-match-wins** rule list. Unmatched errors are

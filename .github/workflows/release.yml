@@ -1,12 +1,11 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
 
 permissions:
-  contents: write # create the GitHub Release
+  contents: read
   id-token: write # OIDC for npm Trusted Publishing (auth + provenance)
 
 jobs:
@@ -41,23 +40,3 @@ jobs:
 
       - name: Publish to npm via Trusted Publishing
         run: npm publish --access public --ignore-scripts
-
-      - name: Ensure GitHub Release exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists (e.g. created by release-please); skipping."
-            exit 0
-          fi
-          VERSION="${GITHUB_REF_NAME#v}"
-          NOTES="$(awk -v ver="$VERSION" '
-            $0 ~ "^## \\[" ver "\\]" { capture = 1; next }
-            capture && /^## \[/ { exit }
-            capture { print }
-          ' CHANGELOG.md)"
-          if [ -z "$(printf "%s" "$NOTES" | tr -d "[:space:]")" ]; then
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
-          else
-            printf "%s\n" "$NOTES" | gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file -
-          fi
