@@ -8,6 +8,12 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # TypeScript 6 breaks tsup's .d.ts build (baseUrl deprecation became an
+      # error). Hold the major here; adopt TS 6 deliberately in its own PR once
+      # tsup ships a compatible release. Minor/patch 5.x updates still flow.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
