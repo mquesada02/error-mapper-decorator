@@ -74,7 +74,7 @@
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^25",
     "@vitest/coverage-v8": "^4",
-    "fast-check": "^3",
+    "fast-check": "^4",
     "publint": "^0.3",
     "reflect-metadata": "^0.2",
     "tsup": "^8",
