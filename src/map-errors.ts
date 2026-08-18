@@ -307,6 +307,7 @@ function resolveRules(
   }
 
   const resolved: ResolvedRules = { rules, pipeline };
+  // Stryker disable next-line CallExpression: memoization only — removing it is behaviorally invisible
   cache.set(start, resolved);
   return resolved;
 }
