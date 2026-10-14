@@ -14,6 +14,14 @@ updates:
       # tsup ships a compatible release. Minor/patch 5.x updates still flow.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # Vitest 5 breaks Stryker's vitest runner: every mutant survives, so the
+      # 100% mutation gate fails (stryker-mutator/stryker-js#6210). Hold the
+      # major until a Stryker release fixes it. coverage-v8 must match vitest's
+      # major.
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/coverage-v8"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
